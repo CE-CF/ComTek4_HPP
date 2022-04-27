@@ -9,6 +9,7 @@ from scipy.fftpack import dct, idct
 import math
 from time import time
 from sys import argv
+from itertools import chain
 
 def _time(f):
     def wrapper(*args):
@@ -22,7 +23,6 @@ def _time(f):
 
 @_time
 def for_loop_split(image: np.ndarray, kernel_size: tuple):
-	print(f'Size of the image: {image.shape}')
 	img_height, img_width = image.shape # , channels
 	tile_height, tile_width = kernel_size
 
@@ -113,11 +113,12 @@ def show(im):
 	plt.show()
 
 
-img = np.asarray(Image.open("Faur2.png").convert('L'))
+img = np.asarray(Image.open("Faur2.png").convert('L'), dtype='int16')
 #img = np.asarray(Image.open("Faur2.png").convert('RGB'))
 
 #img = rgb2ycbcr(img)
 show(img)
+img -= 128
 
 t1, t2 = (argv[1], argv[2])
 tilesize = (int(t1), int(t2))
@@ -131,38 +132,39 @@ if (tiles_1 == tiles_2).all() and (tiles_2 == tiles_3).all():
     print("\nAll tile arrays are equal.")
     print("Each array has %d tiles\n" % (n))
 
-
-
 @_time
 def dct2(block):
-    return dct(dct(block, axis=0), axis=1)
-@_time
-def idct2(block):
-    return idct(idct(block, axis=0), axis=1)
+    return dct(dct(block.T, type=2, norm='ortho').T, type=2, norm='ortho')
 
+@_time
+def dct3(block):
+    return dct(dct(block.T, type=3, norm='ortho').T, type=3, norm='ortho')
+
+#@_time
 def dctOurs(x):
     N = len(x)
     x2 = np.empty(2*N,float)
     x2[:N] = x[:]
     x2[N:] = x[::-1]
 
-    X = rfft(x2)									# This function computes the one-dimensional n-point discrete Fourier Transform (DFT) of a real-valued array by means of an efficient algorithm called the Fast Fourier Transform (FFT).
+    X = rfft(x2)
     phi = np.exp(-1j*math.pi*np.arange(N)/(2*N))
     return np.real(phi*X[:N])
 
 #@_time
-def dct2Ours(block):
-    M = block.shape[0]
-    N = block.shape[1]
+def dct2Ours(x):
+    M = x.shape[0]
+    N = x.shape[1]
     a = np.empty([M,N],float)
     X = np.empty([M,N],float)
 
     for i in range(M):
-        a[i,:] = dctOurs(block[i,:])
+        a[i,:] = dctOurs(x[i,:])
     for j in range(N):
         X[:,j] = dctOurs(a[:,j])
 
     return X
+
 @_time
 def dctTheMatrix(matrix, outMatrix):
     for x in range(len(tiles_1)):
@@ -176,14 +178,50 @@ def quantTheMatrix(matrix, q50, outMatrix):
         for y in range(len(matrix[0])):
              outMatrix[x][y] = np.round((matrix[x][y]/Q_50), 0)
     return outMatrix
+
+@_time
+def flattenMatrix(twoDmatrix, outputList):
+    #print(f'twoDmatrix = {twoDmatrix}\n')
+    outputList.extend(list(np.concatenate(twoDmatrix).flat))
+    #print(f'outputList = {outputList}')
+    return outputList    
+
+
+@_time
+def reQuantTheMatrix(matrix, q50, outMatrix):
+    for x in range(len(matrix)):
+        for y in range(len(matrix[0])):
+            outMatrix[x][y] = np.round((matrix[x][y]*Q_50), 0)
+    return outMatrix
+
+@_time
+def reshape_recompile(matrix):
+    matrix = matrix.swapaxes(1, 2)
+    newmatrix = matrix.reshape(-1, 800)
+
+
+    return newmatrix
+
+
 #img = ycbcr2rgb(img)
 #show(img)
+print(f'biggest value of original matrix: {np.amax(tiles_1)}\n')
 print(f'The original matrix: \n {tiles_1[50][50]}\n')
 
-dctmatrix = [[0 for x in range(len(tiles_1))]for x in range(len(tiles_1[0]))]
+dctmatrix = np.empty((len(tiles_1),len(tiles_1[0]),len(tiles_1[0][0]), len(tiles_1[0][0][0])), dtype='int16')
+"""
 dctTheMatrix(tiles_1, dctmatrix)
-
+comparison = dctmatrix == dct2(tiles_1)
+if (comparison.all()):
+    print(f'Du er dygtig')
+else:
+    print(f'Det er ikke det samme')
+"""
+dctmatrix = dct2(tiles_1)
+print(f'biggest value of dctmatrix: {np.amax(dctmatrix)}\n')
 print(f'The dctmatrix: \n {dctmatrix[50][50]}\n')
+
+show(reshape_recompile(dctmatrix))
 """
 Source: https://www.math.cuhk.edu.hk/~lmlui/dct.pdf
 
@@ -211,7 +249,31 @@ The scaled quantization matrix is then rounded and clipped to have positive inte
 Quantization is achived by dividing each element in the transformed image matrix D by the corresponding element in the quantization matrix, and then rounding to the nearest integer value.
 for this example the Q_50 matrix is used.
 """
-quantmatrix = [[0 for x in range(len(tiles_1))]for x in range(len(tiles_1[0]))]
+quantmatrix = np.empty((len(tiles_1),len(tiles_1[0]),len(tiles_1[0][0]), len(tiles_1[0][0][0])), dtype='int16')
 quantTheMatrix(dctmatrix, Q_50, quantmatrix)
+print(f'biggest value of quantmatrix: {np.amax(quantmatrix)}\n')
+print(f'The quantmatrix: \n {quantmatrix[50][50]}\n')
+show(reshape_recompile(quantmatrix))
+"""
+# Everything in here is used to compress the image further
+zigZagList = []
+flattenMatrix(quantmatrix, zigZagList)
+print(f'The flattened zig-zag matrix has length: {len(zigZagList)}\n')
+# Then this zigZagList should be encoded to bytestream for even better compression
+"""
 
-print(f'The quantmatrix: \n {quantmatrix[50][50]}')
+idctmatrix = np.empty((len(tiles_1),len(tiles_1[0]),len(tiles_1[0][0]), len(tiles_1[0][0][0])), dtype='int16')
+idctmatrix = dct3(quantmatrix)
+print(f'biggest value of idctmatrix: {np.amax(idctmatrix)}\n')
+print(f'The idctmatrix: \n {idctmatrix[50][50]}\n')
+
+"""
+requantmatrix = [[0 for x in range(len(tiles_1))]for x in range(len(tiles_1[0]))]
+reQuantTheMatrix(idctmatrix, Q_50, requantmatrix)
+print(f'The re-quantized matrix: \n {requantmatrix[50][50]}\n')
+"""
+newimg = np.empty((800,800), dtype='int16')
+newimg = reshape_recompile(idctmatrix)
+newimg += 128
+
+show(newimg)
