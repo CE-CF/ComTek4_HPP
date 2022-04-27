@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+    #!/usr/bin/python3
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy.fft import rfft,irfft
@@ -150,7 +150,7 @@ def dctOurs(x):
     phi = np.exp(-1j*math.pi*np.arange(N)/(2*N))
     return np.real(phi*X[:N])
 
-@_time
+#@_time
 def dct2Ours(block):
     M = block.shape[0]
     N = block.shape[1]
@@ -163,17 +163,25 @@ def dct2Ours(block):
         X[:,j] = dctOurs(a[:,j])
 
     return X
+@_time
+def dctTheMatrix(matrix, outMatrix):
+    for x in range(len(tiles_1)):
+        for y in range(len(tiles_1[0])):
+            outMatrix[x][y] = dct2Ours((matrix[x][y]))
+    return outMatrix
 
-
-
+@_time
+def quantTheMatrix(matrix, q50, outMatrix):
+    for x in range(len(matrix)):
+        for y in range(len(matrix[0])):
+             outMatrix[x][y] = np.round((matrix[x][y]/Q_50), 0)
+    return outMatrix
 #img = ycbcr2rgb(img)
 #show(img)
-dctmatrix = [[0 for x in range(len(tiles_1))]for x in range(len(tiles_1[0]))]
-for x in range(len(tiles_1)):
-	for y in range(len(tiles_1[0])):
-		dctmatrix[x][y] = dct2Ours((tiles_1[x][y]))
-
 print(f'The original matrix: \n {tiles_1[50][50]}\n')
+
+dctmatrix = [[0 for x in range(len(tiles_1))]for x in range(len(tiles_1[0]))]
+dctTheMatrix(tiles_1, dctmatrix)
 
 print(f'The dctmatrix: \n {dctmatrix[50][50]}\n')
 """
@@ -204,8 +212,6 @@ Quantization is achived by dividing each element in the transformed image matrix
 for this example the Q_50 matrix is used.
 """
 quantmatrix = [[0 for x in range(len(tiles_1))]for x in range(len(tiles_1[0]))]
-for x in range(len(tiles_1)):
-	for y in range(len(tiles_1[0])):
-		 quantmatrix[x][y] = np.round((dctmatrix[x][y]/Q_50), 0)
+quantTheMatrix(dctmatrix, Q_50, quantmatrix)
 
 print(f'The quantmatrix: \n {quantmatrix[50][50]}')
