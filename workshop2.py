@@ -22,7 +22,7 @@ def _time(f):
 
 @_time
 def for_loop_split(image: np.ndarray, kernel_size: tuple):
-	print(image.shape)
+	print(f'Size of the image: {image.shape}')
 	img_height, img_width = image.shape # , channels
 	tile_height, tile_width = kernel_size
 
