@@ -105,19 +105,24 @@ def close_figure(event):
     if event.key == 'escape':
         plt.close(event.canvas.figure)
 
-def show(im):
-	fig = plt.figure()
-	plt.imshow(im, cmap=plt.cm.Greys_r)
-	plt.colorbar()
-	plt.gcf().canvas.mpl_connect('key_press_event', close_figure)
-	plt.show()
+def show(im, text, imgtype=0):
+    fig = plt.figure()
+    if (imgtype == 1):
+        plt.imshow(im,cmap='gray',vmax = np.max(im)*0.01,vmin = 0)
+    else:
+        plt.imshow(im, cmap=plt.cm.Greys_r)
+
+    plt.title(text)
+    plt.colorbar()
+    plt.gcf().canvas.mpl_connect('key_press_event', close_figure)
+    plt.show()
 
 
 img = np.asarray(Image.open("Faur2.png").convert('L'), dtype='int16')
 #img = np.asarray(Image.open("Faur2.png").convert('RGB'))
 
 #img = rgb2ycbcr(img)
-show(img)
+show(img, "start")
 img -= 128
 
 t1, t2 = (argv[1], argv[2])
@@ -173,10 +178,16 @@ def dctTheMatrix(matrix, outMatrix):
     return outMatrix
 
 @_time
-def quantTheMatrix(matrix, q50, outMatrix):
+def quantTheMatrix(matrix, q_s, outMatrix):
     for x in range(len(matrix)):
         for y in range(len(matrix[0])):
-             outMatrix[x][y] = np.round((matrix[x][y]/Q_50), 0)
+             outMatrix[x][y] = np.round((matrix[x][y]/q_s), 0)
+    return outMatrix
+
+def rescaleQuant(q50, scale, outMatrix):
+    for x in range(len(q50)):
+        for y in range(len(q50[0])):
+            outMatrix[x][y] = math.floor((scale*q50[x][y] + 50) / 100);
     return outMatrix
 
 @_time
@@ -221,23 +232,32 @@ dctmatrix = dct2(tiles_1)
 print(f'biggest value of dctmatrix: {np.amax(dctmatrix)}\n')
 print(f'The dctmatrix: \n {dctmatrix[50][50]}\n')
 
-show(reshape_recompile(dctmatrix))
+show(reshape_recompile(dctmatrix), "dctmatrix", 1)
 """
 Source: https://www.math.cuhk.edu.hk/~lmlui/dct.pdf
 
 There exist a standardizezd quantization matrix where values range from 0-100, 100 is high quality and low compression and 0 is high compression and low quality
 Below is the 50 version
 """
+Q = 80
 
-Q_50 = [[16,11,10,16,24,40,51,61],
-		[12,12,14,19,26,58,60,55],
-		[14,13,16,24,40,57,69,56],
-		[14,17,22,29,51,87,80,62],
-		[18,22,37,56,68,109,103,77],
-		[24,35,55,64,81,104,113,92],
-		[49,64,78,87,103,121,120,101],
-		[72,92,95,98,112,100,103,99]]
+Q_50 = np.array([
+  [16, 11, 10, 16, 24, 40, 51, 61],
+  [12, 12, 14, 19, 26, 58, 60, 55],
+  [14, 13, 16, 24, 40, 57, 69, 56],
+  [14, 17, 22, 29, 51, 87, 80, 62],
+  [18, 22, 37, 56, 68, 109, 103, 77],
+  [24, 35, 55, 64, 81, 104, 113, 92],
+  [49, 64, 78, 87, 103, 121, 120, 101],
+  [72, 92, 95, 98, 112, 100, 103, 99]
+])
 
+if (Q < 50):
+    S = 5000/Q;
+else:
+    S = 200 - 2*Q;
+Q_S = np.empty((len(Q_50),len(Q_50[0])), dtype='int16')
+Q_S = rescaleQuant(Q_50, S, Q_S)
 """
 For a quality greater than 50, the standard quantization matrix is multiplied by 
 (100-quality level)/50. For a quality level less than 50(more compression, lower image quality),
@@ -250,10 +270,10 @@ Quantization is achived by dividing each element in the transformed image matrix
 for this example the Q_50 matrix is used.
 """
 quantmatrix = np.empty((len(tiles_1),len(tiles_1[0]),len(tiles_1[0][0]), len(tiles_1[0][0][0])), dtype='int16')
-quantTheMatrix(dctmatrix, Q_50, quantmatrix)
+quantmatrix = quantTheMatrix(dctmatrix, Q_S, quantmatrix)
 print(f'biggest value of quantmatrix: {np.amax(quantmatrix)}\n')
 print(f'The quantmatrix: \n {quantmatrix[50][50]}\n')
-show(reshape_recompile(quantmatrix))
+show(reshape_recompile(quantmatrix), "quantmatrix", 1)
 """
 # Everything in here is used to compress the image further
 zigZagList = []
@@ -276,4 +296,4 @@ newimg = np.empty((800,800), dtype='int16')
 newimg = reshape_recompile(idctmatrix)
 newimg += 128
 
-show(newimg)
+show(newimg, "reshaped image")
