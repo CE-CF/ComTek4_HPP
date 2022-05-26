@@ -11,7 +11,9 @@ from time import time
 import os, sys
 from itertools import chain
 import argparse
-
+from mpi4py import MPI
+import multiprocessing as mp
+from numba import prange, jit, vectorize
 
 def _time(f):
     def wrapper(*args):
@@ -66,40 +68,31 @@ def update_progress(progress):
         sys.stdout.flush()
 
 @_time
-def block_partition(image: np.ndarray, kernel_size: tuple, multi_processor=0):
-    if (multi_processor==0):
-        img_height, img_width = image.shape #, channels
-        tile_height, tile_width = kernel_size
-        tiled_array = image.reshape(img_height // tile_height,
-                                    tile_height,
-                                    img_width // tile_width,
-                                    tile_width#,  #channels
-                                    )
-        tiled_array = tiled_array.swapaxes(1, 2)
-        return tiled_array
-    else:
-        block_per_dim = [int(len(image)/kernel_size[0]),int(len(image[0])/kernel_size[1])]
-        tiled_array= np.empty((block_per_dim[0],block_per_dim[1],kernel_size[0],kernel_size[1]),dtype='int16')
+@jit(nopython=True, parallel=False)    
+def block_partition(image: np.ndarray, kernel_size: tuple, tester=0):
+    block_per_dim = [int(len(image)/kernel_size[0]),int(len(image[0])/kernel_size[1])]
+    tiled_array= np.empty((block_per_dim[0],block_per_dim[1],kernel_size[0],kernel_size[1]),dtype='int16')
 
-        for x in range(block_per_dim[0]):
-            for y in range(block_per_dim[1]):
-                for i in range(kernel_size[0]):
-                    tiled_array[x][y][i] = [image.item((kernel_size[0]*x)+i,(kernel_size[1]*y)+j) for j in range(kernel_size[1])]
-        return tiled_array
+    for x in range(block_per_dim[0]):
+        for y in range(block_per_dim[1]):
+            for i in range(kernel_size[0]):
+                for j in range(kernel_size[1]):
+                    tiled_array[x][y][i][j] = image[(kernel_size[0]*x)+i][(kernel_size[1]*y)+j]
+    return tiled_array
 
 @_time
-def recompile_image(image: np.ndarray, kernel_size: tuple, multi_processor=0):
-    if (multi_processor==0):
-        image = image.swapaxes(1, 2)
-        newimage = image.reshape(-1, 800)
-
-        return newimage
-    else:
-        image = image.swapaxes(1, 2)
-        newimage = image.reshape(-1, 800)
-
+@jit(nopython=True, parallel=False)    
+def recompile_image(image: np.ndarray, kernel_size: tuple, tester=0):
+    block_per_dim = [len(image),len(image[0])]
+    newimage = np.empty((block_per_dim[0]*kernel_size[0],block_per_dim[1]*kernel_size[1]),dtype='int16')
+    print(newimage.shape)
+    for j in range(kernel_size[0]):
+        for i in range(kernel_size[1]):
+            for x in range(block_per_dim[1]): 
+                for y in range(block_per_dim[0]):
+                    newimage[(x*kernel_size[0])+i][(y*kernel_size
+                    [1])+j] = image[x][y][i][j]
     return newimage
-
 #@_time
 def dct2_test(block):
     return dct(dct(block.T, type=2, norm='ortho').T, type=2, norm='ortho')
@@ -108,96 +101,90 @@ def dct2_test(block):
 def dct3_test(block):
     return dct(dct(block.T, type=3, norm='ortho').T, type=3, norm='ortho')
 @_time
-def dct2(image: np.ndarray, kernel_size: tuple, multi_processor=0):                    # Array[P][Q][M][N]
+@jit(nopython=True, parallel=False)    
+def dct2(image: np.ndarray, kernel_size: tuple, tester=0):                    # Array[P][Q][M][N]
     block_per_dim = [int(len(image)),int(len(image[0]))]
     dct_array = np.empty((block_per_dim[0],block_per_dim[1],kernel_size[0],kernel_size[1]),dtype='int16')
-    print(f'block per dimension: {block_per_dim}')
-    if (multi_processor!=0):
-        block_sum = 0
-        for x in range(block_per_dim[0]):
-            update_progress(x/block_per_dim[0])
-            for y in range(block_per_dim[1]):
-                for i in range(kernel_size[0]):
-                    if (i == 0):
-                        scalar_i =1/math.sqrt(kernel_size[0]) 
+    dct_array = dct_array.astype('int16')
+    block_sum = 0
+    for x in range(block_per_dim[0]):
+        #update_progress(x/block_per_dim[0])
+        for y in range(block_per_dim[1]):
+            for i in range(kernel_size[0]):
+                if (i == 0):
+                    scalar_i =1/math.sqrt(kernel_size[0]) 
+                else:
+                    scalar_i = math.sqrt(2/kernel_size[0])
+                for j in range(kernel_size[1]):
+                    if (j == 0):
+                        scalar_j = 1/math.sqrt(kernel_size[1])
                     else:
-                        scalar_i = math.sqrt(2/kernel_size[0])
-                    for j in range(kernel_size[1]):
-                        if (j == 0):
-                            scalar_j = 1/math.sqrt(kernel_size[1])
-                        else:
-                            scalar_j = math.sqrt(2/kernel_size[1])
-                        for m in range(kernel_size[0]):
-                            for n in range(kernel_size[1]):
-                                block_sum += image[x][y][m][n]*math.cos((math.pi*(2*m+1)*i)/(2*kernel_size[0]))*math.cos((math.pi*(2*n+1)*j)/(2*kernel_size[1]))
+                        scalar_j = math.sqrt(2/kernel_size[1])
+                    for m in range(kernel_size[0]):
+                        for n in range(kernel_size[1]):
+                            block_sum += image[x][y][m][n]*math.cos((math.pi*(2*m+1)*i)/(2*kernel_size[0]))*math.cos((math.pi*(2*n+1)*j)/(2*kernel_size[1]))
 
-                        dct_array[x][y][i][j] = scalar_i*scalar_j*block_sum
-                        block_sum = 0
-        return dct_array
-    else: # Skal laves om
-        for x in range(block_per_dim[0]):
-            update_progress(x/block_per_dim[0])
-            for y in range(block_per_dim[1]):
-                dct_array[x][y] = dct2_test(image[x][y])
-        return dct_array
+                    dct_array[x][y][i][j] = scalar_i*scalar_j*block_sum
+                    block_sum = 0
+    return dct_array
 
-def rescaleQuant(q50, scale, outMatrix):
+@jit(nopython=True, parallel=False)    
+def rescaleQuant(q50, scale):
+    outMatrix = np.empty((len(Q_50),len(Q_50[0])), dtype='int16')
+    outMatrix.astype('int16')
     for x in range(len(q50)):
         for y in range(len(q50[0])):
             outMatrix[x][y] = math.floor((scale*q50[x][y] + 50) / 100);
     return outMatrix
 
 @_time
+@jit(nopython=True, parallel=False)    
 def quantTheMatrix(matrix, q_s):
     outMatrix = np.empty((len(matrix),len(matrix[0]), len(matrix[0][0]), len(matrix[0][0][0])), dtype='int16')
+    outMatrix.astype('int16')
     for x in range(len(matrix)):
         for y in range(len(matrix[0])):
             for i in range(len(matrix[0][0])):
-                outMatrix[x][y] = np.round((matrix[x][y]/q_s), 0)
+                outMatrix[x][y] = (matrix[x][y]/q_s)
     return outMatrix
 
 @_time
-def idct2(image: np.ndarray, kernel_size: tuple, multi_processor=0):                    # Array[P][Q][M][N]
+@jit(nopython=True, parallel=False)    
+def idct2(image: np.ndarray, kernel_size: tuple, tester=0):                    # Array[P][Q][M][N]
     block_per_dim = [int(len(image)),int(len(image[0]))]
-    idct_array = np.empty((block_per_dim[0],block_per_dim[1],kernel_size[0],kernel_size[1]),dtype='int16')
-    print(f'block per dimension: {block_per_dim}')
-    if (multi_processor!=0):
-        block_sum = 0
-        for x in range(block_per_dim[0]):
-            update_progress(x/block_per_dim[0])
-            for y in range(block_per_dim[1]):
-                for m in range(kernel_size[0]):
+    idct_array = np.empty((block_per_dim[0],block_per_dim[1],kernel_size[0],kernel_size[1]),dtype='int16')    
+    idct_array = idct_array.astype('int16')
+    block_sum = 0
+    for x in range(block_per_dim[0]):
+        #update_progress(x/block_per_dim[0])
+        for y in range(block_per_dim[1]):
+            for m in range(kernel_size[0]):
+                
+                for n in range(kernel_size[1]):
                     
-                    for n in range(kernel_size[1]):
-                        
-                        for i in range(kernel_size[0]):
-                            if (i == 0):
-                                scalar_i =1/math.sqrt(kernel_size[0]) 
+                    for i in range(kernel_size[0]):
+                        if (i == 0):
+                            scalar_i =1/math.sqrt(kernel_size[0]) 
+                        else:
+                            scalar_i = math.sqrt(2/kernel_size[0])
+
+                        for j in range(kernel_size[1]):
+                            if (j == 0):
+                                scalar_j = 1/math.sqrt(kernel_size[1])
                             else:
-                                scalar_i = math.sqrt(2/kernel_size[0])
+                                scalar_j = math.sqrt(2/kernel_size[1])
+                            block_sum += scalar_i*scalar_j*image[x][y][i][j]*math.cos((math.pi*(2*m+1)*i)/(2*kernel_size[0]))*math.cos((math.pi*(2*n+1)*j)/(2*kernel_size[1]))
 
-                            for j in range(kernel_size[1]):
-                                if (j == 0):
-                                    scalar_j = 1/math.sqrt(kernel_size[1])
-                                else:
-                                    scalar_j = math.sqrt(2/kernel_size[1])
-                                block_sum += scalar_i*scalar_j*image[x][y][i][j]*math.cos((math.pi*(2*m+1)*i)/(2*kernel_size[0]))*math.cos((math.pi*(2*n+1)*j)/(2*kernel_size[1]))
+                    idct_array[x][y][m][n] = block_sum
+                    block_sum = 0
+    return idct_array
 
-                        idct_array[x][y][m][n] = block_sum
-                        block_sum = 0
-        return idct_array
-    else: # Skal laves om
-        for x in range(block_per_dim[0]):
-            update_progress(x/block_per_dim[0])
-            for y in range(block_per_dim[1]):
-                idct_array[x][y] = dct3_test(image[x][y])
-        return idct_array
-
+@jit(nopython=True, parallel=False)    
 def reQuantTheMatrix(matrix, q_s):
     outMatrix = np.empty((len(matrix),len(matrix[0]), len(matrix[0][0]), len(matrix[0][0][0])), dtype='int16')
     for x in range(len(matrix)):
         for y in range(len(matrix[0])):
-            outMatrix[x][y] = np.round((matrix[x][y]*q_s), 0)
+            outMatrix[x][y] = (matrix[x][y]*q_s)
     return outMatrix
 if __name__=="__main__": 
     
@@ -210,7 +197,7 @@ if __name__=="__main__":
     parser.add_argument("--mp", action="store_true")
     parser.add_argument("--mp_numbaJIT", action="store_true")
     parser.add_argument("--mp_GPU", action="store_true")
-    #parser.add_argument("--mp_GPU", action="store_true")
+    parser.add_argument("--mp_MPI", action="store_true")
     args = parser.parse_args()
 
     """if args.space:
@@ -238,20 +225,15 @@ if __name__=="__main__":
     Q = 80
 
     # Tiling
-    tiles_mp = block_partition(img, tilesize)
-    print(tiles_mp[int(len(tiles_mp)/2)][int(len(tiles_mp)/2)])
-    tiles_seq = block_partition(img, tilesize,1)
+    tiles_seq = block_partition(img, tilesize)
     print(tiles_seq[int(len(tiles_seq)/2)][int(len(tiles_seq)/2)])
-    tiles_check = tiles_seq == tiles_mp
-    assert tiles_check.all(), "The sequential and multi-processing  array's are not identical"
-
+    print(tiles_seq.shape)
+    
     # DCT2
-    dct_mp = dct2(tiles_mp, tilesize)
-    print(dct_mp[int(len(dct_mp)/2)][int(len(dct_mp)/2)])
     dct_seq = dct2(tiles_seq, tilesize, 1)
+    print(dct_seq.shape)
     print(dct_seq[int(len(dct_seq)/2)][int(len(dct_seq)/2)])
 
-    #assert np.allclose(dct_seq, dct_mp,1), "The sequential and multi-processing  array's are not identical"
 
     """
     Source: https://www.math.cuhk.edu.hk/~lmlui/dct.pdf
@@ -275,30 +257,32 @@ if __name__=="__main__":
         S = 5000/Q;
     else:
         S = 200 - 2*Q;
-    Q_S = np.empty((len(Q_50),len(Q_50[0])), dtype='int16')
-    Q_S = rescaleQuant(Q_50, S, Q_S)
+    
+    Q_S = rescaleQuant(Q_50, S)
     print(Q_50)
     print(Q_S)
 
     # Quantization
     quant_seq = quantTheMatrix(dct_seq, Q_S)
+    print(quant_seq.shape)
     print(quant_seq[int(len(quant_seq)/2)][int(len(quant_seq)/2)])
-    quant_mp = quantTheMatrix(dct_mp, Q_S)
-    print(quant_mp[int(len(quant_mp)/2)][int(len(quant_mp)/2)])
+    #quant_mp = quantTheMatrix(dct_mp, Q_S)
+    #print(quant_mp[int(len(quant_mp)/2)][int(len(quant_mp)/2)])
 
     # Reconstruction
     requant_seq = reQuantTheMatrix(quant_seq, Q_S)
     print(requant_seq[int(len(requant_seq)/2)][int(len(requant_seq)/2)])
-    requant_mp = reQuantTheMatrix(quant_mp, Q_S)
-    print(requant_mp[int(len(requant_mp)/2)][int(len(requant_mp)/2)])
+    #requant_mp = reQuantTheMatrix(quant_mp, Q_S)
+    #print(requant_mp[int(len(requant_mp)/2)][int(len(requant_mp)/2)])
 
     # DCT2
-    idct_mp = idct2(requant_mp, tilesize)
-    print(idct_mp[int(len(idct_mp)/2)][int(len(idct_mp)/2)])
+    #idct_mp = idct2(requant_mp, tilesize)
+    #print(idct_mp[int(len(idct_mp)/2)][int(len(idct_mp)/2)])
     idct_seq = idct2(requant_seq, tilesize, 1)
     print(idct_seq[int(len(idct_seq)/2)][int(len(idct_seq)/2)])
 
 
+    #img_A = recompile_image(tiles_seq, tilesize)
     img_A = recompile_image(tiles_seq, tilesize)
     img_B = recompile_image(idct_seq, tilesize)
     img_A += 128
