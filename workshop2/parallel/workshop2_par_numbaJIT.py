@@ -68,10 +68,8 @@ def update_progress(progress):
         sys.stdout.flush()
 
 @_time
-@jit(nopython=True, parallel=False)    
+@jit(nopython=True, parallel=True)    
 def block_partition(image: np.ndarray, kernel_size: tuple, tester=0):
-    block_per_dim = [int(len(image)/kernel_size[0]),int(len(image[0])/kernel_size[1])]
-    tiled_array= np.empty((block_per_dim[0],block_per_dim[1],kernel_size[0],kernel_size[1]),dtype='int16')
 
     for x in range(block_per_dim[0]):
         for y in range(block_per_dim[1]):
@@ -81,7 +79,7 @@ def block_partition(image: np.ndarray, kernel_size: tuple, tester=0):
     return tiled_array
 
 @_time
-@jit(nopython=True, parallel=False)    
+@jit(nopython=True, parallel=True)    
 def recompile_image(image: np.ndarray, kernel_size: tuple, tester=0):
     block_per_dim = [len(image),len(image[0])]
     newimage = np.empty((block_per_dim[0]*kernel_size[0],block_per_dim[1]*kernel_size[1]),dtype='int16')
@@ -101,7 +99,7 @@ def dct2_test(block):
 def dct3_test(block):
     return dct(dct(block.T, type=3, norm='ortho').T, type=3, norm='ortho')
 @_time
-@jit(nopython=True, parallel=False)    
+@jit(nopython=True, parallel=True)    
 def dct2(image: np.ndarray, kernel_size: tuple, tester=0):                    # Array[P][Q][M][N]
     block_per_dim = [int(len(image)),int(len(image[0]))]
     dct_array = np.empty((block_per_dim[0],block_per_dim[1],kernel_size[0],kernel_size[1]),dtype='int16')
@@ -128,7 +126,7 @@ def dct2(image: np.ndarray, kernel_size: tuple, tester=0):                    # 
                     block_sum = 0
     return dct_array
 
-@jit(nopython=True, parallel=False)    
+@jit(nopython=True, parallel=True)    
 def rescaleQuant(q50, scale):
     outMatrix = np.empty((len(Q_50),len(Q_50[0])), dtype='int16')
     outMatrix.astype('int16')
@@ -138,7 +136,7 @@ def rescaleQuant(q50, scale):
     return outMatrix
 
 @_time
-@jit(nopython=True, parallel=False)    
+@jit(nopython=True, parallel=True)    
 def quantTheMatrix(matrix, q_s):
     outMatrix = np.empty((len(matrix),len(matrix[0]), len(matrix[0][0]), len(matrix[0][0][0])), dtype='int16')
     outMatrix.astype('int16')
@@ -149,7 +147,7 @@ def quantTheMatrix(matrix, q_s):
     return outMatrix
 
 @_time
-@jit(nopython=True, parallel=False)    
+@jit(nopython=True, parallel=True)    
 def idct2(image: np.ndarray, kernel_size: tuple, tester=0):                    # Array[P][Q][M][N]
     block_per_dim = [int(len(image)),int(len(image[0]))]
     idct_array = np.empty((block_per_dim[0],block_per_dim[1],kernel_size[0],kernel_size[1]),dtype='int16')    
@@ -179,7 +177,7 @@ def idct2(image: np.ndarray, kernel_size: tuple, tester=0):                    #
                     block_sum = 0
     return idct_array
 
-@jit(nopython=True, parallel=False)    
+@jit(nopython=True, parallel=True)    
 def reQuantTheMatrix(matrix, q_s):
     outMatrix = np.empty((len(matrix),len(matrix[0]), len(matrix[0][0]), len(matrix[0][0][0])), dtype='int16')
     for x in range(len(matrix)):
@@ -188,6 +186,12 @@ def reQuantTheMatrix(matrix, q_s):
     return outMatrix
 if __name__=="__main__": 
     
+    manager = mp.Manager() # Multi processing manager. Used to create global variable.
+    mlock = manager.Lock()
+    n_cores = mp.cpu_count()
+    print(n_cores)
+
+
     start = time()
     img = np.asarray(Image.open("Faur2.png").convert('L'), dtype='int16')
     img -= 128
@@ -195,10 +199,26 @@ if __name__=="__main__":
     tilesize = (8,8)
     Q = 80
 
-    # Tiling
-    tiles_seq = block_partition(img, tilesize)
+    tiles_per_dim = [int(len(img)/tilesize[0]),int(len(img[0])/tilesize[1])]
 
+    tiles_per_mp = (tiles_per_dim[0]*tiles_per_dim[1])/n_cores
+    print(tiles_per_mp)
+    rows_per_mp = tiles_per_mp/tiles_per_dim[0]
+    print(rows_per_mp)
+
+
+    tiled_array= np.empty((tiles_per_dim[0],tiles_per_dim[1],tilesize[0],tilesize[1]),dtype='int16')
     
+    # Tiling
+    rows_per_mp_list = [0]
+    for x in range(n_cores):
+        if (x == 0):
+            rows_per_mp_list.append(rows_per_mp)
+        else:
+            rows_per_mp_list.append(rows_per_mp_list[x]+rows_per_mp)
+    print(rows_per_mp_list)
+    block_partition(img, tilesize, tiles_per_dim, tiles_per_mp, tiled_array)
+
     # DCT2
     dct_seq = dct2(tiles_seq, tilesize, 1)
 
@@ -233,10 +253,9 @@ if __name__=="__main__":
 
     # DCT2
     idct_seq = idct2(requant_seq, tilesize, 1)
-
-
     end = time()
-    
+
+
     #img_A = recompile_image(tiles_seq, tilesize)
     img_A = recompile_image(tiles_seq, tilesize)
     img_B = recompile_image(idct_seq, tilesize)
@@ -253,7 +272,7 @@ if __name__=="__main__":
     plot_image = np.concatenate((img_A, img_B), axis=1)
     show(plot_image, "before and after")
 
-    print(f'Sequential numba JIT timed: {end-start}')
+    print(f'Parallel numba JIT timed: {end-start}')
     #assert np.allclose(tiles_seq, idct_seq,10), "The sequential and multi-processing  array's are not identical"
 
 
