@@ -1,10 +1,7 @@
 import numpy as np
 import time
-from os import cpu_count
-import multiprocessing as mp
 
-
-def kadane(arr, start, finish, left, right, n):
+def kadane(arr, start, finish, n):
 
     Sum = 0
     maxSum = -999999999999
@@ -24,7 +21,7 @@ def kadane(arr, start, finish, left, right, n):
             finish[0] = i
 
     if finish[0] != -1:
-        return (maxSum, start[0], finish[0], left, right)
+        return maxSum
 
     maxSum = arr[0]
     start[0] = finish[0] = 0
@@ -33,81 +30,38 @@ def kadane(arr, start, finish, left, right, n):
         if arr[i] > maxSum:
             maxSum = arr[i]
             start[0] = finish[0] = i
-    return (maxSum, start[0], finish[0], left, right)
+    return maxSum
 
 
-def _loopy_boi(M, ROW, COL, left, pool):
-
-    maxSum, finalLeft = -999999999999, None
-    finalRight, finalTop, finalBottom = None, None, None
-    right, i = None, None
-
-    start = [0]
-    finish = [0]
-
-    temp = [0] * ROW
-
-    res_list = []
-    for right in range(left, COL):
-        for i in range(ROW):
-            temp[i] += M[i][right]
-            
-        res = pool.apply_async(
-            kadane,
-            (
-                temp,
-                start,
-                finish,
-                left,
-                right,
-                ROW,
-            ),
-        )
-
-    res_list.append(res.get(timeout=100))
-
-        # Sum = kadane(temp, start, finish, ROW)
-
-    for x in res_list:
-        if x[0] > maxSum:
-            maxSum = x[0]
-            finalLeft = x[3]
-            finalRight = x[4]
-            finalTop = x[1]
-            finalBottom = x[2]
-
-    return (maxSum, finalTop, finalLeft, finalBottom, finalRight)
-
-
-def findMaxSum(M, ROW, COL, processors=cpu_count()):
-
-    assert processors != 0, "Can't use 0 processors"
-    assert processors <= cpu_count(), "Too many processors"
+def findMaxSum(M, ROW, COL):
 
     maxSum, finalLeft = -999999999999, None
     finalRight, finalTop, finalBottom = None, None, None
     left, right, i = None, None, None
 
     temp = [None] * ROW
+    Sum = 0
     start = [0]
     finish = [0]
 
-    res_list = []
+    for left in range(COL):
 
-    with mp.Pool(processors) as pool:
-        for left in range(COL):
-            res_list.append(_loopy_boi(M, ROW, COL, left, pool))
+        temp = [0] * ROW
 
-    res = None
+        for right in range(left, COL):
+            for i in range(ROW):
+                temp[i] += M[i][right]
 
-    for x in res_list:
-        if x[0] > maxSum:
-            res = x
-            maxSum = x[0]
+            Sum = kadane(temp, start, finish, ROW)
 
-    print(res)
+            if Sum > maxSum:
+                maxSum = Sum
+                finalLeft = left
+                finalRight = right
+                finalTop = start[0]
+                finalBottom = finish[0]
 
-    return res
+    return (maxSum, finalTop, finalLeft, finalBottom, finalRight)
 
 
 def matrix_Generator(N, out=True):
@@ -146,7 +100,7 @@ def matrix_Generator(N, out=True):
 # Driver Code
 if __name__ == "__main__":
 
-    N = 10  # N * N matrix
+    N = 10 ** 4  # N * N matrix
     ROW = N
     COL = N
     M = matrix_Generator(N, False)
@@ -159,4 +113,4 @@ if __name__ == "__main__":
     print("(Bottom, Right)", "(", finalBottom, finalRight, ")")
     print("Max sum is:", maxSum)
 
-    print("Time for parallel execution: ", t_end - t_start)
+    print("Time for sequential execution: ", t_end - t_start)
