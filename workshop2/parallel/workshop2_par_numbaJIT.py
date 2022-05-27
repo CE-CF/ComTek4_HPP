@@ -305,7 +305,7 @@ if __name__=="__main__":
     with open('parallel_800.csv', 'w', encoding='UTF8', newline='') as f:
         writer = csv.writer(f)
         header = []
-        :
+        for x in range(len(result[0])):
             header.append(f'{x+2} cores')
         
         # write the header
