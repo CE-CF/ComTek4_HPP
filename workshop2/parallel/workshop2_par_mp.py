@@ -86,7 +86,7 @@ def block_partition(image: np.ndarray, kernel_size: tuple, tester=0):
         for x in range(block_per_dim[0]):
             for y in range(block_per_dim[1]):
                 for i in range(kernel_size[0]):
-                    for j in range(kernel_size[1]):
+                    for j in range(kernel_size[1])
                         tiled_array[x][y][i][j] = image.item((kernel_size[0]*x)+i,(kernel_size[1]*y)+j) 
         return tiled_array
 
@@ -97,11 +97,12 @@ def recompile_image(image: np.ndarray, kernel_size: tuple, tester=0):
         print(block_per_dim)
         newimage = np.empty((block_per_dim[0]*kernel_size[0],block_per_dim[1]*kernel_size[1]),dtype='int16')
         print(newimage.shape)
-        for j in range(kernel_size[0]):
-            for i in range(kernel_size[1]):
+        for i in range(kernel_size[1]):
+            for j in range(kernel_size[0]):
                 for x in range(block_per_dim[1]): 
                     for y in range(block_per_dim[0]):
-                        newimage[(x*kernel_size[0])+i][(y*kernel_size[1])+j] = image[x][y][i][j]
+                        #print("[", ((x*kernel_size[0])+i),"][", ((y*kernel_size[1])+j), "]")
+                        newimage[x*kernel_size[0]+i][y*kernel_size[1]+j] = image[x][y][i][j]
         return newimage
     else:
         image = image.swapaxes(1, 2)
@@ -236,11 +237,11 @@ if __name__=="__main__":
                     motorCorrection(ImProcOutput,cameraFOV,NumberOfSpeedSettings,correctionList,timeOrSpace,printOut)"""
     
     # Testing
-    #simageX = 80
-    #imageY = 80
-    #img = np.random.randint(0,255,(imageX,imageY), dtype='int16')
+    imageX = 80
+    imageY = 80
+    img = np.random.randint(0,255,(imageX,imageY), dtype='int16')
 
-    img = np.asarray(Image.open("Faur2.png").convert('L'), dtype='int16')
+    #img = np.asarray(Image.open("Faur2.png").convert('L'), dtype='int16')
     img -= 128
 
     tilesize = (8,8)
