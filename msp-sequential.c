@@ -1,10 +1,11 @@
+#include <stddef.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <time.h>
 #include <sys/time.h>
 #include <stdlib.h>
 
-#define MATRIX_SIZE 4
+#define MATRIX_SIZE 10000
 
 #define RAND(min, max)                                                         \
   (int)(((double)(max - min + 1) / RAND_MAX) * rand() + min)
@@ -27,39 +28,28 @@ void initMatrix(int M[MATRIX_SIZE][MATRIX_SIZE]){
   }
 }
 
-void initMatrixPtr(int **M){
-  puts("Alloc M");
-  M = (int **) malloc(MATRIX_SIZE * sizeof(int*));
-  if (M == NULL)
-    exit(-1);
-
-  for (int i = 0; i < MATRIX_SIZE; i++){
-    printf("Alloc M[%i]\n", i);
-    M[i] = (int *) malloc(MATRIX_SIZE * sizeof(int));
+void initMatrixPtr(int *M[], size_t N){
+  for (int i = 0; i < N; i++){
+    M[i] = (int *) malloc(N * sizeof(int));
   }
+}
 
+void freeMatrix(int *M[], size_t N){
+  for (int i = 0; i < N; i++){
+    free(M[i]);
+  }
+}
+void populateMatrix(int *M[], size_t N){
   srandom(time(NULL));
-  for (int i = 0; i < MATRIX_SIZE; i++){
-    for (int j = 0; j < MATRIX_SIZE; j++){
-      printf("filling M[%i][%i]\n", i,j);
+  for (int i = 0; i < N; i++){
+    for (int j = 0; j < N; j++){
       M[i][j] = RAND(-128,127);
     }
   }
-  puts("Done init");
 }
 
-void freeMatrix(int **M){
-  puts("Freeing");
-  for (int i = 0; i < MATRIX_SIZE; i++){
-    printf("Freeing M[%i]\n", i);
-    free(M[i]);
-  }
 
-  puts("Freeing M");
-  free(M);
-}
-
-int kadane(int *arr, int *start, int *finish,int len){
+static int kadane(int *arr, int *start, int *finish,int len){
   int sum, maxSum, locStart;
   sum = 0;
   maxSum = -999999999;
@@ -98,7 +88,7 @@ int kadane(int *arr, int *start, int *finish,int len){
   return maxSum;
 }
 
-struct maxSum_t findMaxSum(int M[MATRIX_SIZE][MATRIX_SIZE], int ROW, int COL){
+static struct maxSum_t findMaxSum(int *M[MATRIX_SIZE], int ROW, int COL){
   int maxSum = 0, finalLeft = 0, finalRight = 0, finalTop = 0, finalBottom = 0;
   int sum, start, finish;
 
@@ -124,6 +114,8 @@ struct maxSum_t findMaxSum(int M[MATRIX_SIZE][MATRIX_SIZE], int ROW, int COL){
         finalBottom = finish;
       }
     }
+    printf("left: %i                   \r", MATRIX_SIZE - left);
+    fflush(stdout);
   }
   struct maxSum_t res ={
     .maxSum = maxSum,
@@ -137,20 +129,41 @@ struct maxSum_t findMaxSum(int M[MATRIX_SIZE][MATRIX_SIZE], int ROW, int COL){
 
 
 int main(){
-  struct timeval tval_before, tval_after, tval_result;
-  int matrix[MATRIX_SIZE][MATRIX_SIZE];
+  FILE * fp;
+
+  size_t N[4] = {10, 100, 1000, 10000};
+  int* matrix[MATRIX_SIZE];
+
+  fp = fopen("results_seq.csv", "w");
+  if (fp == NULL){
+    exit(-1);
+  }
 
 
+  fputs("ID,N,MaxSum,Time\n", fp);
 
-  initMatrix(matrix);
-
-  gettimeofday(&tval_before, NULL);
-  struct maxSum_t result = findMaxSum(matrix, MATRIX_SIZE, MATRIX_SIZE);
-  gettimeofday(&tval_after, NULL);
-
-  timersub(&tval_after, &tval_before, &tval_result);
-  char *fmt = "(Top, Left): (%li,%li)\n(Bottom, Right): (%li,%li)\nMaxsum: %li\nTook: %ld.%06ld";
-  printf(fmt, result.finalTop, result.finalLeft,
-         result.finalBottom, result.finalRight,result.maxSum, (long int)tval_result.tv_sec, (long int)tval_result.tv_usec);
-
+  for (int j; j < 4; j++) {
+    initMatrixPtr(matrix, N[j]);
+    for (int i = 0; i < 10; i++){
+    printf("Size: %li\n", N[j]);
+      struct timeval tval_before, tval_after, tval_result;
+      populateMatrix(matrix, N[j]);
+      gettimeofday(&tval_before, NULL);
+      struct maxSum_t result = findMaxSum(matrix, N[j], N[j]);
+      gettimeofday(&tval_after, NULL);
+      
+      timersub(&tval_after, &tval_before, &tval_result);
+      char *fmt = "(Top, Left): (%li,%li)\n(Bottom, Right): (%li,%li)"
+      "\nMaxsum: %li\nTook: %ld.%06ld\n";
+      printf(fmt, result.finalTop, result.finalLeft,
+             result.finalBottom, result.finalRight,result.maxSum,
+             (long int)tval_result.tv_sec, (long int)tval_result.tv_usec);
+      fprintf(fp, "%i,%li,%i,%ld.%06ld\n", i, N[j], result.maxSum,
+              (long int)tval_result.tv_sec, (long int)tval_result.tv_usec);
+      if (tval_result.tv_sec == 0)
+        sleep(1);
+    }
+    freeMatrix(matrix, N[j]);
+  }
+  fclose(fp);
 }
