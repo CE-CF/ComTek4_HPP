@@ -189,18 +189,20 @@ if __name__=="__main__":
     
     sum_progress = 0
     total = 2*7*10
+    result = np.empty((2,7,10))
     for x in range(2):
         if (x == 0):
             img = np.asarray(Image.open("Faur2.png").convert('L'), dtype='int16')
         else:
             img = np.asarray(Image.open("1600.jpg").convert('L'), dtype='int16')
         
-        result = np.empty((2,7,10))
         for y in range(2,9):
             n_cores = y 
 
             for z in range(10):
+                
                 start_final = time()
+                
                 img -= 128
                 tilesize = (8,8)
                 Q = 80
@@ -211,21 +213,21 @@ if __name__=="__main__":
                 
                 
                 # Tiling
-                start_tiling = time()
+                #start_tiling = time()
                 pool = Pool(n_cores)
                 tiles = []
                 tiles = np.array(pool.map(block_partition, [(img, tilesize, tiles_per_dim, x) for x in range(int(len(img)/tilesize[0]))]))
                 pool.close()
-                end_tiling = time()
+                #end_tiling = time()
                 #print(f'Tiling done in: {end_tiling-start_tiling}')
 
                 # DCT2
-                start_dct = time()
+                #start_dct = time()
                 pool = Pool(n_cores)
                 dct = []
                 dct = np.array(pool.map(dct2, [(tiles, tilesize, tiles_per_dim, x) for x in range(int(len(img)/tilesize[0]))]))
                 pool.close()
-                end_dct = time()
+                #end_dct = time()
                 #print(f'DCT done in: {end_dct-start_dct}')
 
                 # Quantization
@@ -249,30 +251,30 @@ if __name__=="__main__":
 
 
                 # Quantization
-                start_quant = time()
+                #start_quant = time()
                 pool = Pool(n_cores)
                 quant = []
                 quant = np.array(pool.map(quantTheMatrix, [(dct[x], Q_S, x) for x in range(int(len(img)/tilesize[0]))]))
                 pool.close()
-                end_quant = time()
+                #end_quant = time()
                 #print(f'Quant done in: {end_quant-start_quant}')
                 
                 # Reconstruction
-                start_requant = time()
+                #start_requant = time()
                 pool = Pool(n_cores)
                 requant = []
                 requant = np.array(pool.map(reQuantTheMatrix, [(quant[x], Q_S, x) for x in range(int(len(img)/tilesize[0]))]))
                 pool.close()
-                end_requant = time()
+                #end_requant = time()
                 #print(f'Requant done in: {end_requant-start_requant}')
 
                 # IDCT2
-                start_idct = time()
+                #start_idct = time()
                 pool = Pool(n_cores)
                 idct = []
                 idct = np.array(pool.map(idct2, [(requant, tilesize, tiles_per_dim, x) for x in range(int(len(img)/tilesize[0]))]))
                 pool.close()
-                end_idct = time()
+                #end_idct = time()
                 #print(f'IDCT done in: {end_idct-start_idct}')
                 
                 end_final = time()
@@ -296,7 +298,7 @@ if __name__=="__main__":
                 plot_image = np.concatenate((img_A, img_B), axis=1)
                 show(plot_image, "before and after")
                 """
-                result[x][y-3][z] = end_final-start_final
+                result[x][y-2][z] = end_final-start_final
                 #assert np.allclose(tiles, idct,10), "The sequential and multi-processing  array's are not identical"
                 sum_progress += 1
                 update_progress(sum_progress/total)
