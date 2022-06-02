@@ -13,7 +13,7 @@
 #define RAND(min, max)                                                         \
   (signed char)(((double)(max - min + 1) / RAND_MAX) * rand() + min)
 
-/* #define TESTING  */
+#define TESTING
 
 
 struct maxSum_t {
@@ -97,10 +97,12 @@ static struct maxSum_t loopy_boi(signed char *M[], int ROW, int COL, int *start,
   signed char temp[ROW];
   struct maxSum_t results;
   int sum;
+  #pragma omp simd
   for (int i = 0; i < ROW; i++)
     temp[i] = 0;
-  
+
   for (int right = _start; right < COL; right++){
+    /* #pragma omp simd */
     for (int i = 0; i < ROW; i++)
       temp[i] += M[i][right];
     
@@ -141,26 +143,21 @@ static struct maxSum_t findMaxSum(signed char *M[], int ROW, int COL){
 
   int fend = COL - remainingWork;
 
+#pragma omp parallel for shared(results) private(maxSum) schedule(dynamic,1)
   for (int i = 0; i < p; i++){
-    #pragma omp parallel for shared(results) private(maxSum) schedule(dynamic,1)
+    /* #pragma omp parallel for shared(results) private(maxSum) schedule(dynamic,1) */
     for (int j = i*startSS; j < (i+1) * startSS; j++){
       results[j] = loopy_boi(M, ROW, COL, &start, &finish, j, maxSum);
-      /* printf("%i\n", results[j].maxSum); */
-      /* printf("Thread[%i]\tDone with col: %i\n", omp_get_thread_num(), j); */
     }
 
-    #pragma omp parallel for shared(results) private(maxSum) schedule(dynamic,1)
+    /* #pragma omp parallel for shared(results) private(maxSum) schedule(dynamic,1) */
     for (int j = fend - (i+1)*endSS; j < fend - i * endSS; j++){
       results[j] = loopy_boi(M, ROW, COL, &start, &finish, j, maxSum);
-      /* printf("%i\n", results[j].maxSum); */
-      /* printf("Thread[%i]\tDone with col: %i\n", omp_get_thread_num(), j); */
     }
   }
   #pragma omp parallel for shared(results) private(maxSum) schedule(dynamic,1)
   for(int j = fend; j < COL; j++){
       results[j] = loopy_boi(M, ROW, COL, &start, &finish, j, maxSum);
-      /* printf("%i\n", results[j].maxSum); */
-      /* printf("Thread[%i]\tDone with col: %i\n", omp_get_thread_num(), j); */
   }
 
 
